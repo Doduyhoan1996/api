@@ -3,57 +3,32 @@
 namespace Dingo\Api\Routing;
 
 use ErrorException;
-use Dingo\Api\Auth\Auth;
-use Dingo\Api\Dispatcher;
-use Dingo\Api\Http\Response\Factory;
 
-/**
- * @property \Dingo\Api\Dispatcher                                            $api
- * @property \Illuminate\Auth\GenericUser|\Illuminate\Database\Eloquent\Model $user
- * @property \Dingo\Api\Auth\Auth                                             $auth
- * @property \Dingo\Api\Http\Response\Factory                                 $response
- */
 trait Helpers
 {
     /**
-     * Controller scopes.
+     * Array of controller method properties.
      *
      * @var array
      */
-    protected $scopes = [];
-
-    /**
-     * Controller authentication providers.
-     *
-     * @var array
-     */
-    protected $authenticationProviders = [];
-
-    /**
-     * Controller rate limit and expiration.
-     *
-     * @var array
-     */
-    protected $rateLimit = [];
-
-    /**
-     * Controller rate limit throttles.
-     *
-     * @var array
-     */
-    protected $throttles = [];
+    protected $methodProperties = [
+        'scopes' => [],
+        'providers' => [],
+        'rateLimit' => [],
+        'throttles' => [],
+    ];
 
     /**
      * Throttles for controller methods.
      *
-     * @param string|\Dingo\Api\Contract\Http\RateLimit\Throttle $class
+     * @param string|\Dingo\Api\Http\RateLimit\Throttle\Throttle $throttle
      * @param array                                              $options
      *
      * @return void
      */
-    protected function throttle($class, array $options = [])
+    protected function throttle($throttle, array $options = [])
     {
-        $this->throttles[] = compact('class', 'options');
+        $this->methodProperties['throttles'][] = array_merge($this->methodProperties['throttles'], compact('throttle', 'options'));
     }
 
     /**
@@ -67,7 +42,31 @@ trait Helpers
      */
     protected function rateLimit($limit, $expires, array $options = [])
     {
-        $this->rateLimit[] = compact('limit', 'expires', 'options');
+        $this->methodProperties['rateLimit'][] = compact('limit', 'expires', 'options');
+    }
+
+    /**
+     * Protect controller methods.
+     *
+     * @param array $options
+     *
+     * @return void
+     */
+    protected function protect(array $options = [])
+    {
+        $this->methodProperties['protected'][] = compact('options');
+    }
+
+    /**
+     * Unprotect controller methods.
+     *
+     * @param array $options
+     *
+     * @return void
+     */
+    protected function unprotect(array $options = [])
+    {
+        $this->methodProperties['unprotected'][] = compact('options');
     }
 
     /**
@@ -80,9 +79,9 @@ trait Helpers
      */
     protected function scopes($scopes, array $options = [])
     {
-        $scopes = $this->getPropertyValue($scopes);
+        $scopes = $this->propertyValue($scopes);
 
-        $this->scopes[] = compact('scopes', 'options');
+        $this->methodProperties['scopes'][] = compact('scopes', 'options');
     }
 
     /**
@@ -95,9 +94,9 @@ trait Helpers
      */
     protected function authenticateWith($providers, array $options = [])
     {
-        $providers = $this->getPropertyValue($providers);
+        $providers = $this->propertyValue($providers);
 
-        $this->authenticationProviders[] = compact('providers', 'options');
+        $this->methodProperties['providers'][] = compact('providers', 'options');
     }
 
     /**
@@ -107,49 +106,19 @@ trait Helpers
      *
      * @return array
      */
-    protected function getPropertyValue($value)
+    protected function propertyValue($value)
     {
         return is_string($value) ? explode('|', $value) : $value;
     }
 
     /**
-     * Get the controllers rate limiting throttles.
+     * Get controller method properties.
      *
      * @return array
      */
-    public function getThrottles()
+    public function getMethodProperties()
     {
-        return $this->throttles;
-    }
-
-    /**
-     * Get the controllers rate limit and expiration.
-     *
-     * @return array
-     */
-    public function getRateLimit()
-    {
-        return $this->rateLimit;
-    }
-
-    /**
-     * Get the controllers scopes.
-     *
-     * @return array
-     */
-    public function getScopes()
-    {
-        return $this->scopes;
-    }
-
-    /**
-     * Get the controllers authentication providers.
-     *
-     * @return array
-     */
-    public function getAuthenticationProviders()
-    {
-        return $this->authenticationProviders;
+        return $this->methodProperties;
     }
 
     /**
@@ -159,7 +128,7 @@ trait Helpers
      */
     public function api()
     {
-        return app(Dispatcher::class);
+        return app('Dingo\Api\Dispatcher');
     }
 
     /**
@@ -169,7 +138,7 @@ trait Helpers
      */
     protected function user()
     {
-        return app(Auth::class)->user();
+        return app('Dingo\Api\Auth\Auth')->user();
     }
 
     /**
@@ -179,7 +148,7 @@ trait Helpers
      */
     protected function auth()
     {
-        return app(Auth::class);
+        return app('Dingo\Api\Auth\Auth');
     }
 
     /**
@@ -189,7 +158,7 @@ trait Helpers
      */
     protected function response()
     {
-        return app(Factory::class);
+        return app('Dingo\Api\Http\Response\Factory');
     }
 
     /**

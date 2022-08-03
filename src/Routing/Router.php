@@ -3,18 +3,18 @@
 namespace Dingo\Api\Routing;
 
 use Closure;
-use Dingo\Api\Contract\Debug\ExceptionHandler;
-use Dingo\Api\Contract\Routing\Adapter;
-use Dingo\Api\Http\InternalRequest;
+use Exception;
+use RuntimeException;
+use Illuminate\Support\Str;
 use Dingo\Api\Http\Request;
 use Dingo\Api\Http\Response;
-use Exception;
+use Dingo\Api\Exception\Handler;
+use Dingo\Api\Http\InternalRequest;
 use Illuminate\Container\Container;
-use Illuminate\Http\JsonResponse;
+use Dingo\Api\Contract\Routing\Adapter;
+use Illuminate\Routing\ControllerInspector;
+use Dingo\Api\Http\Parser\Accept as AcceptParser;
 use Illuminate\Http\Response as IlluminateResponse;
-use Illuminate\Support\Arr;
-use Illuminate\Support\Str;
-use RuntimeException;
 use Symfony\Component\HttpKernel\Exception\NotAcceptableHttpException;
 
 class Router
@@ -22,21 +22,21 @@ class Router
     /**
      * Routing adapter instance.
      *
-     * @var \Dingo\Api\Contract\Routing\Adapter
+     * @var \Dingo\Api\Routing\Adapter\AdapterInterface
      */
     protected $adapter;
 
     /**
      * Accept parser instance.
      *
-     * @var \Dingo\Api\Http\Parser\Accept
+     * @var \Dingo\Api\Http\Parser\AcceptParser
      */
     protected $accept;
 
     /**
      * Exception handler instance.
      *
-     * @var \Dingo\Api\Contract\Debug\ExceptionHandler
+     * @var \Dingo\Api\Exception\Handler
      */
     protected $exception;
 
@@ -92,17 +92,19 @@ class Router
     /**
      * Create a new router instance.
      *
-     * @param \Dingo\Api\Contract\Routing\Adapter        $adapter
-     * @param \Dingo\Api\Contract\Debug\ExceptionHandler $exception
-     * @param \Illuminate\Container\Container            $container
-     * @param string                                     $domain
-     * @param string                                     $prefix
+     * @param \Dingo\Api\Routing\Adapter\Adapter  $adapter
+     * @param \Dingo\Api\Http\Parser\AcceptParser $accept
+     * @param \Dingo\Api\Exception\Handler        $exception
+     * @param \Illuminate\Container\Container     $container
+     * @param string                              $domain
+     * @param string                              $prefix
      *
      * @return void
      */
-    public function __construct(Adapter $adapter, ExceptionHandler $exception, Container $container, $domain, $prefix)
+    public function __construct(Adapter $adapter, AcceptParser $accept, Handler $exception, Container $container, $domain, $prefix)
     {
         $this->adapter = $adapter;
+        $this->accept = $accept;
         $this->exception = $exception;
         $this->container = $container;
         $this->domain = $domain;
@@ -115,9 +117,9 @@ class Router
      * attributes and a required callback.
      *
      * This method can be called without the third parameter, however,
-     * the callback should always be the last parameter.
+     * the callback should always be the last paramter.
      *
-     * @param array|string   $version
+     * @param string         $version
      * @param array|callable $second
      * @param callable       $third
      *
@@ -126,9 +128,9 @@ class Router
     public function version($version, $second, $third = null)
     {
         if (func_num_args() == 2) {
-            [$version, $callback, $attributes] = array_merge(func_get_args(), [[]]);
+            list($version, $callback, $attributes) = array_merge(func_get_args(), [[]]);
         } else {
-            [$version, $attributes, $callback] = func_get_args();
+            list($version, $attributes, $callback) = func_get_args();
         }
 
         $attributes = array_merge($attributes, ['version' => $version]);
@@ -252,35 +254,6 @@ class Router
     }
 
     /**
-     * Create a new route that responding to all verbs.
-     *
-     * @param string                $uri
-     * @param array|string|callable $action
-     *
-     * @return mixed
-     */
-    public function any($uri, $action)
-    {
-        $verbs = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'];
-
-        return $this->addRoute($verbs, $uri, $action);
-    }
-
-    /**
-     * Create a new route with the given verbs.
-     *
-     * @param array|string          $methods
-     * @param string                $uri
-     * @param array|string|callable $action
-     *
-     * @return mixed
-     */
-    public function match($methods, $uri, $action)
-    {
-        return $this->addRoute(array_map('strtoupper', (array) $methods), $uri, $action);
-    }
-
-    /**
      * Register an array of resources.
      *
      * @param array $resources
@@ -293,7 +266,7 @@ class Router
             $options = [];
 
             if (is_array($resource)) {
-                [$resource, $options] = $resource;
+                list($resource, $options) = $resource;
             }
 
             $this->resource($name, $resource, $options);
@@ -311,13 +284,74 @@ class Router
      */
     public function resource($name, $controller, array $options = [])
     {
-        if ($this->container->bound(ResourceRegistrar::class)) {
-            $registrar = $this->container->make(ResourceRegistrar::class);
+        if ($this->container->bound('Dingo\Api\Routing\ResourceRegistrar')) {
+            $registrar = $this->container->make('Dingo\Api\Routing\ResourceRegistrar');
         } else {
             $registrar = new ResourceRegistrar($this);
         }
 
         $registrar->register($name, $controller, $options);
+    }
+
+    /**
+     * Register an array of controllers.
+     *
+     * @param array $controllers
+     *
+     * @return void
+     */
+    public function controllers(array $controllers)
+    {
+        foreach ($controllers as $uri => $controller) {
+            $this->controller($uri, $controller);
+        }
+    }
+
+    /**
+     * Register a controller.
+     *
+     * @param string $uri
+     * @param string $controller
+     * @param array  $names
+     *
+     * @return void
+     */
+    public function controller($uri, $controller, $names = [])
+    {
+        $routable = (new ControllerInspector)->getRoutable($this->addGroupNamespace($controller), $uri);
+
+        foreach ($routable as $method => $routes) {
+            if ($method == 'getMethodProperties') {
+                continue;
+            }
+
+            foreach ($routes as $route) {
+                $this->{$route['verb']}($route['uri'], [
+                    'uses' => $controller.'@'.$method,
+                    'as' => array_get($names, $method),
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Add the group namespace to a controller.
+     *
+     * @param string $controller
+     *
+     * @return string
+     */
+    protected function addGroupNamespace($controller)
+    {
+        if (! empty($this->groupStack)) {
+            $group = end($this->groupStack);
+
+            if (isset($group['namespace']) && strpos($controller, '\\') !== 0) {
+                return $group['namespace'].'\\'.$controller;
+            }
+        }
+
+        return $controller;
     }
 
     /**
@@ -332,25 +366,17 @@ class Router
     public function addRoute($methods, $uri, $action)
     {
         if (is_string($action)) {
-            $action = ['uses' => $action, 'controller' => $action];
+            $action = ['uses' => $action];
         } elseif ($action instanceof Closure) {
             $action = [$action];
-        } elseif (is_array($action)) {
-            // For this sort of syntax $api->post('login', [LoginController::class, 'login']);
-            if (is_string(Arr::first($action)) && class_exists(Arr::first($action)) && count($action) == 2) {
-                $action = implode('@', $action);
-                $action = ['uses' => $action, 'controller' => $action];
-            }
         }
 
         $action = $this->mergeLastGroupAttributes($action);
 
-        $action = $this->addControllerMiddlewareToRouteAction($action);
-
         $uri = $uri === '/' ? $uri : '/'.trim($uri, '/');
 
         if (! empty($action['prefix'])) {
-            $uri = '/'.ltrim(rtrim(trim($action['prefix'], '/').'/'.trim($uri, '/'), '/'), '/');
+            $uri = '/'.rtrim(trim($action['prefix'], '/').'/'.trim($uri, '/'), '/');
 
             unset($action['prefix']);
         }
@@ -358,20 +384,6 @@ class Router
         $action['uri'] = $uri;
 
         return $this->adapter->addRoute((array) $methods, $action['version'], $uri, $action);
-    }
-
-    /**
-     * Add the controller preparation middleware to the beginning of the routes middleware.
-     *
-     * @param array $action
-     *
-     * @return array
-     */
-    protected function addControllerMiddlewareToRouteAction(array $action)
-    {
-        array_unshift($action['middleware'], 'api.controllers');
-
-        return $action;
     }
 
     /**
@@ -420,13 +432,9 @@ class Router
             $new['uses'] = $this->formatUses($new, $old);
         }
 
-        $new['where'] = array_merge(Arr::get($old, 'where', []), Arr::get($new, 'where', []));
+        $new['where'] = array_merge(array_get($old, 'where', []), array_get($new, 'where', []));
 
-        if (isset($old['as'])) {
-            $new['as'] = trim($old['as'].'.'.Arr::get($new, 'as', ''), '.');
-        }
-
-        return array_merge_recursive(Arr::except($old, ['namespace', 'prefix', 'where', 'as']), $new);
+        return array_merge_recursive(array_except($old, ['namespace', 'prefix', 'where']), $new);
     }
 
     /**
@@ -439,7 +447,7 @@ class Router
      */
     protected function formatArrayBasedOption($option, array $new)
     {
-        $value = Arr::get($new, $option, []);
+        $value = array_get($new, $option, []);
 
         return is_string($value) ? explode('|', $value) : $value;
     }
@@ -477,7 +485,7 @@ class Router
             return trim($new['namespace'], '\\');
         }
 
-        return Arr::get($old, 'namespace');
+        return array_get($old, 'namespace');
     }
 
     /**
@@ -491,10 +499,10 @@ class Router
     protected function formatPrefix($new, $old)
     {
         if (isset($new['prefix'])) {
-            return trim(Arr::get($old, 'prefix'), '/').'/'.trim($new['prefix'], '/');
+            return trim(array_get($old, 'prefix'), '/').'/'.trim($new['prefix'], '/');
         }
 
-        return Arr::get($old, 'prefix', '');
+        return array_get($old, 'prefix', '');
     }
 
     /**
@@ -502,31 +510,29 @@ class Router
      *
      * @param \Dingo\Api\Http\Request $request
      *
-     * @throws \Exception
-     *
      * @return \Dingo\Api\Http\Response
      */
     public function dispatch(Request $request)
     {
         $this->currentRoute = null;
 
-        $this->container->instance(Request::class, $request);
+        $accept = $this->accept->parse($request);
+
+        $this->container->instance('Dingo\Api\Http\Request', $request);
 
         $this->routesDispatched++;
 
         try {
-            $response = $this->adapter->dispatch($request, $request->version());
+            $response = $this->adapter->dispatch($request, $accept['version']);
         } catch (Exception $exception) {
             if ($request instanceof InternalRequest) {
                 throw $exception;
             }
 
-            $this->exception->report($exception);
-
             $response = $this->exception->handle($exception);
         }
 
-        return $this->prepareResponse($response, $request, $request->format());
+        return $this->prepareResponse($response, $request, $accept['format']);
     }
 
     /**
@@ -535,6 +541,7 @@ class Router
      * @param mixed                   $response
      * @param \Dingo\Api\Http\Request $request
      * @param string                  $format
+     * @param bool                    $raw
      *
      * @return \Dingo\Api\Http\Response
      */
@@ -542,8 +549,6 @@ class Router
     {
         if ($response instanceof IlluminateResponse) {
             $response = Response::makeFromExisting($response);
-        } elseif ($response instanceof JsonResponse) {
-            $response = Response::makeFromJson($response);
         }
 
         if ($response instanceof Response) {
@@ -562,25 +567,13 @@ class Router
 
         if ($response->isSuccessful() && $this->requestIsConditional()) {
             if (! $response->headers->has('ETag')) {
-                $response->setEtag(sha1($response->getContent() ?: ''));
+                $response->setEtag(md5($response->getContent()));
             }
 
             $response->isNotModified($request);
         }
 
         return $response;
-    }
-
-    /**
-     * Gather the middleware for the given route.
-     *
-     * @param mixed $route
-     *
-     * @return array
-     */
-    public function gatherRouteMiddlewares($route)
-    {
-        return $this->adapter->gatherRouteMiddlewares($route);
     }
 
     /**
@@ -624,11 +617,13 @@ class Router
     {
         if (isset($this->currentRoute)) {
             return $this->currentRoute;
-        } elseif (! $this->hasDispatchedRoutes() || ! $route = $this->container['request']->route()) {
+        } elseif (! $this->hasDispatchedRoutes()) {
             return;
         }
 
-        return $this->currentRoute = $this->createRoute($route);
+        $request = $this->container['request'];
+
+        return $this->currentRoute = $this->createRoute($request->route());
     }
 
     /**
@@ -646,7 +641,7 @@ class Router
      *
      * @param array|\Illuminate\Routing\Route $route
      *
-     * @return \Dingo\Api\Routing\Route
+     * @return \Dingi\Api\Routing\Route
      */
     public function createRoute($route)
     {
@@ -818,7 +813,7 @@ class Router
 
         $action = $route->getAction();
 
-        return is_string($action['uses']) ? $action['uses'] : null;
+        return isset($action['controller']) ? $action['controller'] : null;
     }
 
     /**
@@ -849,15 +844,5 @@ class Router
     public function currentRouteUses($action)
     {
         return $this->currentRouteAction() == $action;
-    }
-
-    /**
-     * Flush the router's middleware groups.
-     *
-     * @return $this
-     */
-    public function flushMiddlewareGroups()
-    {
-        return $this;
     }
 }

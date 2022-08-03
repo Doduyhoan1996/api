@@ -3,24 +3,16 @@
 namespace Dingo\Api\Http\Parser;
 
 use Illuminate\Http\Request;
-use Dingo\Api\Contract\Http\Parser;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 
 class Accept implements Parser
 {
     /**
-     * Standards tree.
+     * API vendor.
      *
      * @var string
      */
-    protected $standardsTree;
-
-    /**
-     * API subtype.
-     *
-     * @var string
-     */
-    protected $subtype;
+    protected $vendor;
 
     /**
      * Default version.
@@ -39,17 +31,15 @@ class Accept implements Parser
     /**
      * Create a new accept parser instance.
      *
-     * @param string $standardsTree
-     * @param string $subtype
+     * @param string $vendor
      * @param string $version
      * @param string $format
      *
      * @return void
      */
-    public function __construct($standardsTree, $subtype, $version, $format)
+    public function __construct($vendor, $version, $format)
     {
-        $this->standardsTree = $standardsTree;
-        $this->subtype = $subtype;
+        $this->vendor = $vendor;
         $this->version = $version;
         $this->format = $format;
     }
@@ -67,18 +57,18 @@ class Accept implements Parser
      */
     public function parse(Request $request, $strict = false)
     {
-        $pattern = '/application\/'.$this->standardsTree.'\.('.$this->subtype.')\.([\w\d\.\-]+)\+([\w]+)/';
+        $default = 'application/vnd.'.$this->vendor.'.'.$this->version.'+'.$this->format;
+
+        $pattern = '/application\/vnd\.('.$this->vendor.')\.(v?[\d\.]+)\+([\w]+)/';
 
         if (! preg_match($pattern, $request->header('accept'), $matches)) {
             if ($strict) {
                 throw new BadRequestHttpException('Accept header could not be properly parsed because of a strict matching process.');
             }
 
-            $default = 'application/'.$this->standardsTree.'.'.$this->subtype.'.'.$this->version.'+'.$this->format;
-
             preg_match($pattern, $default, $matches);
         }
 
-        return array_combine(['subtype', 'version', 'format'], array_slice($matches, 1));
+        return array_combine(['vendor', 'version', 'format'], array_slice($matches, 1));
     }
 }

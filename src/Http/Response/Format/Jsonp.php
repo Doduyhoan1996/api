@@ -5,7 +5,7 @@ namespace Dingo\Api\Http\Response\Format;
 class Jsonp extends Json
 {
     /**
-     * Name of JSONP callback parameter.
+     * Name of JSONP callback paramater.
      *
      * @var string
      */
@@ -58,20 +58,18 @@ class Jsonp extends Json
     }
 
     /**
-     * Encode the content to its JSONP representation.
+     * Encode the content to its JSON representation.
      *
-     * @param mixed $content
+     * @param string $content
      *
      * @return string
      */
     protected function encode($content)
     {
-        $jsonString = parent::encode($content);
-
         if ($this->hasValidCallback()) {
-            return sprintf('%s(%s);', $this->getCallback(), $jsonString);
+            return sprintf('%s(%s);', $this->getCallback(), json_encode($content));
         }
 
-        return $jsonString;
+        return parent::encode($content);
     }
 }

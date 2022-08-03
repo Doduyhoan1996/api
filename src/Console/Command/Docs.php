@@ -2,10 +2,7 @@
 
 namespace Dingo\Api\Console\Command;
 
-use ReflectionClass;
 use Dingo\Blueprint\Writer;
-use Illuminate\Support\Arr;
-use Illuminate\Support\Str;
 use Dingo\Api\Routing\Router;
 use Dingo\Blueprint\Blueprint;
 use Illuminate\Console\Command;
@@ -19,13 +16,6 @@ class Docs extends Command
      * @var \Dingo\Api\Routing\Router
      */
     protected $router;
-
-    /**
-     * The blueprint instance.
-     *
-     * @var \Dingo\Blueprint\Blueprint
-     */
-    protected $blueprint;
 
     /**
      * Blueprint instance.
@@ -62,9 +52,7 @@ class Docs extends Command
      */
     protected $signature = 'api:docs {--name= : Name of the generated documentation}
                                      {--use-version= : Version of the documentation to be generated}
-                                     {--output-file= : Output the generated documentation to a file}
-                                     {--include-path= : Path where included documentation files are located}
-                                     {--use-controller= : Specify a controller where to generate documentation for}';
+                                     {--output-file= : Output the generated documentation to a file}';
 
     /**
      * The console command description.
@@ -102,7 +90,7 @@ class Docs extends Command
      */
     public function handle()
     {
-        $contents = $this->blueprint->generate($this->getControllers(), $this->getDocName(), $this->getVersion(), $this->getIncludePath());
+        $contents = $this->blueprint->generate($this->getControllers(), $this->getDocName(), $this->getVersion());
 
         if ($file = $this->option('output-file')) {
             $this->writer->write($contents, $file);
@@ -132,16 +120,6 @@ class Docs extends Command
     }
 
     /**
-     * Get the include path for documentation files.
-     *
-     * @return string
-     */
-    protected function getIncludePath()
-    {
-        return base_path($this->option('include-path'));
-    }
-
-    /**
      * Get the documentation version.
      *
      * @return string
@@ -168,51 +146,16 @@ class Docs extends Command
     {
         $controllers = new Collection;
 
-        if ($controller = $this->option('use-controller')) {
-            $this->addControllerIfNotExists($controllers, app($controller));
-
-            return $controllers;
-        }
-
         foreach ($this->router->getRoutes() as $collections) {
             foreach ($collections as $route) {
-                if ($controller = $route->getControllerInstance()) {
-                    $this->addControllerIfNotExists($controllers, $controller);
+                if ($controller = $route->getController()) {
+                    if (! $controllers->contains($controller)) {
+                        $controllers->push($controller);
+                    }
                 }
             }
         }
 
         return $controllers;
-    }
-
-    /**
-     * Add a controller to the collection if it does not exist. If the
-     * controller implements an interface suffixed with "Docs" it
-     * will be used instead of the controller.
-     *
-     * @param \Illuminate\Support\Collection $controllers
-     * @param object                         $controller
-     *
-     * @return void
-     */
-    protected function addControllerIfNotExists(Collection $controllers, $controller)
-    {
-        $class = get_class($controller);
-
-        if ($controllers->has($class)) {
-            return;
-        }
-
-        $reflection = new ReflectionClass($controller);
-
-        $interface = Arr::first($reflection->getInterfaces(), function ($key, $value) {
-            return Str::endsWith($key, 'Docs');
-        });
-
-        if ($interface) {
-            $controller = $interface;
-        }
-
-        $controllers->put($class, $controller);
     }
 }

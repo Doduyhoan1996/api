@@ -4,12 +4,10 @@ namespace Dingo\Api\Transformer;
 
 use Closure;
 use RuntimeException;
-use Dingo\Api\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Container\Container;
 use Dingo\Api\Contract\Transformer\Adapter;
 use Illuminate\Contracts\Pagination\Paginator;
-use Illuminate\Http\Request as IlluminateRequest;
 
 class Factory
 {
@@ -51,15 +49,25 @@ class Factory
     /**
      * Register a transformer binding resolver for a class.
      *
-     * @param               $class
-     * @param               $resolver
-     * @param array         $parameters
-     * @param \Closure|null $after
+     * @param string                 $class
+     * @param string|callable|object $resolver
+     * @param array|\Closure         $third
+     * @param \Closure               $fourth
      *
      * @return \Dingo\Api\Transformer\Binding
      */
-    public function register($class, $resolver, array $parameters = [], Closure $after = null)
+    public function register($class, $resolver, $third = null, $fourth = null)
     {
+        if (func_num_args() == 4) {
+            list($parameters, $after) = array_slice(func_get_args(), 2);
+        } elseif (is_array($third)) {
+            list($parameters, $after) = [$third, null];
+        } elseif ($third instanceof Closure) {
+            list($parameters, $after) = [[], $third];
+        } else {
+            list($parameters, $after) = [[], null];
+        }
+
         return $this->bindings[$class] = $this->createBinding($resolver, $parameters, $after);
     }
 
@@ -74,7 +82,7 @@ class Factory
     {
         $binding = $this->getBinding($response);
 
-        return $this->adapter->transform($response, $binding->resolveTransformer(), $binding, $this->getRequest());
+        return $this->adapter->transform($response, $binding->resolveTransformer(), $binding, $this->container['request']);
     }
 
     /**
@@ -110,7 +118,7 @@ class Factory
      *
      * @return \Dingo\Api\Transformer\Binding
      */
-    public function getBinding($class)
+    protected function getBinding($class)
     {
         if ($this->isCollection($class) && ! $class->isEmpty()) {
             return $this->getBindingFromCollection($class);
@@ -215,34 +223,5 @@ class Factory
     public function getAdapter()
     {
         return $this->adapter;
-    }
-
-    /**
-     * Get the request from the container.
-     *
-     * @return \Dingo\Api\Http\Request
-     */
-    public function getRequest()
-    {
-        $request = $this->container['request'];
-
-        if ($request instanceof IlluminateRequest && ! $request instanceof Request) {
-            $request = (new Request())->createFromIlluminate($request);
-        }
-
-        return $request;
-    }
-
-    /**
-     * Pass unknown method calls through to the adapter.
-     *
-     * @param string $method
-     * @param array  $parameters
-     *
-     * @return mixed
-     */
-    public function __call($method, $parameters)
-    {
-        return call_user_func_array([$this->adapter, $method], $parameters);
     }
 }

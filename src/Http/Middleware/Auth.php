@@ -27,8 +27,6 @@ class Auth
      *
      * @param \Dingo\Api\Routing\Router $router
      * @param \Dingo\Api\Auth\Auth      $auth
-     *
-     * @return void
      */
     public function __construct(Router $router, Authentication $auth)
     {
@@ -49,7 +47,7 @@ class Auth
         $route = $this->router->getCurrentRoute();
 
         if (! $this->auth->check(false)) {
-            $this->auth->authenticate($route->getAuthenticationProviders());
+            $this->auth->authenticate($route->getAuthProviders());
         }
 
         return $next($request);

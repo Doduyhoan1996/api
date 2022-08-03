@@ -1,47 +1,45 @@
 {
     "name": "dingo/api",
     "description": "A RESTful API package for the Laravel and Lumen frameworks.",
-    "keywords": [
-        "api",
-        "dingo",
-        "laravel",
-        "restful"
-    ],
+    "keywords": ["restful", "api", "laravel", "dingo"],
     "license": "BSD-3-Clause",
-    "authors": [{
-        "name": "Jason Lewis",
-        "email": "jason.lewis1991@gmail.com"
-    }],
+    "authors": [
+        {
+            "name": "Jason Lewis",
+            "email": "jason.lewis1991@gmail.com"
+        }
+    ],
     "require": {
-        "php": "^7.2.5|^8.0",
-        "dingo/blueprint": "^0.4",
-        "illuminate/routing": "^7.0|^8.0",
-        "illuminate/support": "^7.0|^8.0",
-        "league/fractal": "^0.19"
+        "php": ">=5.5.9",
+        "illuminate/routing": "5.1.*",
+        "illuminate/support": "5.1.*",
+        "dingo/blueprint": "0.1.*",
+        "league/fractal": "0.12.*",
+        "doctrine/annotations": "1.2.*",
+        "phpdocumentor/reflection-docblock": "2.0.*"
     },
     "require-dev": {
-        "friendsofphp/php-cs-fixer": "~2",
-        "illuminate/auth": "^7.0|^8.0",
-        "illuminate/cache": "^7.0|^8.0",
-        "illuminate/console": "^7.0|^8.0",
-        "illuminate/database": "^7.0|^8.0",
-        "illuminate/events": "^7.0|^8.0",
-        "illuminate/filesystem": "^7.0|^8.0",
-        "illuminate/log": "^7.0|^8.0",
-        "illuminate/pagination": "^7.0|^8.0",
-        "laravel/lumen-framework": "^7.0|^8.0",
-        "mockery/mockery": "~1.0",
-        "phpunit/phpunit": "^8.5|^9.0",
-        "squizlabs/php_codesniffer": "~2.0",
-        "tymon/jwt-auth": "1.0.*"
+        "lucadegasperi/oauth2-server-laravel": "4.1.*",
+        "tymon/jwt-auth": "0.5.*",
+        "laravel/lumen-framework": "5.1.*",
+        "illuminate/auth": "5.1.*",
+        "illuminate/cache": "5.1.*",
+        "illuminate/events": "5.1.*",
+        "illuminate/database": "5.1.*",
+        "illuminate/pagination": "5.1.*",
+        "illuminate/console": "5.1.*",
+        "illuminate/filesystem": "5.1.*",
+        "phpunit/phpunit": "~4.0",
+        "mockery/mockery": "~0.9",
+        "squizlabs/php_codesniffer": "~2.0"
     },
     "suggest": {
-        "tymon/jwt-auth": "Protect your API with JSON Web Tokens."
+        "lucadegasperi/oauth2-server-laravel": "Protect your API with OAuth 2.0.",
+        "tymon/jwt-auth": "Protect your API with JSON Web Tokens"
     },
-    "abandoned": "api-ecosystem-for-laravel/dingo-api",
     "autoload": {
         "psr-4": {
-            "Dingo\\Api\\": "src/"
+            "Dingo\\Api\\": "src"
         },
         "files": [
             "src/helpers.php"
@@ -49,24 +47,13 @@
     },
     "autoload-dev": {
         "psr-4": {
-            "Dingo\\Api\\Tests\\": "tests/"
+            "Dingo\\Api\\Tests\\": "tests"
         }
     },
     "extra": {
         "branch-alias": {
-            "dev-master": "2.0-dev"
-        },
-        "laravel": {
-            "providers": [
-                "Dingo\\Api\\Provider\\LaravelServiceProvider"
-            ],
-            "aliases": {
-                "API": "Dingo\\Api\\Facade\\API"
-            }
+            "dev-master": "0.10-dev"
         }
-    },
-    "config": {
-        "sort-packages": true
     },
     "minimum-stability": "dev",
     "prefer-stable": true

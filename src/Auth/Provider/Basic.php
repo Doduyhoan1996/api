@@ -2,8 +2,8 @@
 
 namespace Dingo\Api\Auth\Provider;
 
-use Dingo\Api\Routing\Route;
 use Illuminate\Http\Request;
+use Dingo\Api\Routing\Route;
 use Illuminate\Auth\AuthManager;
 use Symfony\Component\HttpKernel\Exception\UnauthorizedHttpException;
 
@@ -40,8 +40,8 @@ class Basic extends Authorization
     /**
      * Authenticate request with Basic.
      *
-     * @param \Illuminate\Http\Request $request
-     * @param \Dingo\Api\Routing\Route $route
+     * @param \Illuminate\Http\Request  $request
+     * @param \Illuminate\Routing\Route $route
      *
      * @return mixed
      */

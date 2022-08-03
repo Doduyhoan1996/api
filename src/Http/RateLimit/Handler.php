@@ -3,13 +3,9 @@
 namespace Dingo\Api\Http\RateLimit;
 
 use Dingo\Api\Http\Request;
-use Illuminate\Support\Carbon;
 use Illuminate\Cache\CacheManager;
 use Illuminate\Support\Collection;
 use Illuminate\Container\Container;
-use Dingo\Api\Http\RateLimit\Throttle\Route;
-use Dingo\Api\Contract\Http\RateLimit\Throttle;
-use Dingo\Api\Contract\Http\RateLimit\HasRateLimiter;
 
 class Handler
 {
@@ -37,7 +33,7 @@ class Handler
     /**
      * Throttle used for rate limiting.
      *
-     * @var \Dingo\Api\Contract\Http\RateLimit\Throttle
+     * @var \Dingo\Api\Http\RateLimit\Throttle\Throttle
      */
     protected $throttle;
 
@@ -58,7 +54,7 @@ class Handler
     /**
      * A callback used to define the limiter.
      *
-     * @var callable
+     * @var callback
      */
     protected $limiter;
 
@@ -81,9 +77,9 @@ class Handler
     /**
      * Execute the rate limiting for the given request.
      *
-     * @param \Dingo\Api\Http\Request $request
-     * @param int                     $limit
-     * @param int                     $expires
+     * @param \Illuminate\Http\Request $request
+     * @param int                      $limit
+     * @param int                      $expires
      *
      * @return void
      */
@@ -93,14 +89,16 @@ class Handler
 
         // If the throttle instance is already set then we'll just carry on as
         // per usual.
-        if ($this->throttle instanceof Throttle) {
+        if ($this->throttle instanceof Throttle\Throttle) {
+            //
 
-            // If the developer specified a certain amount of requests or expiration
+        // If the developer specified a certain amount of requests or expiration
         // time on a specific route then we'll always use the route specific
         // throttle with the given values.
         } elseif ($limit > 0 || $expires > 0) {
-            $this->throttle = new Route(['limit' => $limit, 'expires' => $expires]);
-            $this->keyPrefix = sha1($request->path());
+            $this->throttle = new Throttle\Route(['limit' => $limit, 'expires' => $expires]);
+
+            $this->keyPrefix = md5($request->path());
 
         // Otherwise we'll use the throttle that gives the consumer the largest
         // amount of requests. If no matching throttle is found then rate
@@ -113,10 +111,6 @@ class Handler
 
         if (is_null($this->throttle)) {
             return;
-        }
-
-        if ($this->throttle instanceof HasRateLimiter) {
-            $this->setRateLimiter([$this->throttle, 'getRateLimiter']);
         }
 
         $this->prepareCacheStore();
@@ -172,7 +166,7 @@ class Handler
      */
     protected function key($key)
     {
-        return sprintf('dingo.api.%s.%s', $key, $this->getRateLimiter());
+        return sprintf('dingo.api.%s.%s.%s', $this->keyPrefix, $key, $this->getRateLimiter());
     }
 
     /**
@@ -186,7 +180,7 @@ class Handler
      */
     protected function cache($key, $value, $minutes)
     {
-        $this->cache->add($this->key($key), $value, Carbon::now()->addMinutes($minutes));
+        $this->cache->add($this->key($key), $value, $minutes);
     }
 
     /**
@@ -262,7 +256,7 @@ class Handler
     /**
      * Set the throttle to use for rate limiting.
      *
-     * @param string|\Dingo\Api\Contract\Http\RateLimit\Throttle $throttle
+     * @param string|\Dingo\Api\Http\RateLimit\Throttle\Throttle
      *
      * @return void
      */
@@ -278,7 +272,7 @@ class Handler
     /**
      * Get the throttle used to rate limit the request.
      *
-     * @return \Dingo\Api\Contract\Http\RateLimit\Throttle
+     * @return \Dingo\Api\Http\RateLimit\Throttle\Throttle
      */
     public function getThrottle()
     {

@@ -7,8 +7,8 @@ use ErrorException;
 use Illuminate\Support\Str;
 use Dingo\Api\Http\Response;
 use Illuminate\Support\Collection;
-use Illuminate\Contracts\Pagination\Paginator;
 use Dingo\Api\Transformer\Factory as TransformerFactory;
+use Illuminate\Contracts\Pagination\Paginator;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class Factory
@@ -39,30 +39,10 @@ class Factory
      *
      * @return \Dingo\Api\Http\Response
      */
-    public function created($location = null, $content = null)
+    public function created($location = null)
     {
-        $response = new Response($content);
+        $response = new Response(null);
         $response->setStatusCode(201);
-
-        if (! is_null($location)) {
-            $response->header('Location', $location);
-        }
-
-        return $response;
-    }
-
-    /**
-     * Respond with an accepted response and associate a location and/or content if provided.
-     *
-     * @param null|string $location
-     * @param mixed       $content
-     *
-     * @return \Dingo\Api\Http\Response
-     */
-    public function accepted($location = null, $content = null)
-    {
-        $response = new Response($content);
-        $response->setStatusCode(202);
 
         if (! is_null($location)) {
             $response->header('Location', $location);
@@ -87,13 +67,13 @@ class Factory
      * Bind a collection to a transformer and start building a response.
      *
      * @param \Illuminate\Support\Collection $collection
-     * @param string|callable|object         $transformer
-     * @param array|\Closure                 $parameters
-     * @param \Closure|null                  $after
+     * @param object                         $transformer
+     * @param array                          $parameters
+     * @param \Closure                       $after
      *
      * @return \Dingo\Api\Http\Response
      */
-    public function collection(Collection $collection, $transformer = null, $parameters = [], Closure $after = null)
+    public function collection(Collection $collection, $transformer, array $parameters = [], Closure $after = null)
     {
         if ($collection->isEmpty()) {
             $class = get_class($collection);
@@ -101,16 +81,7 @@ class Factory
             $class = get_class($collection->first());
         }
 
-        if ($parameters instanceof \Closure) {
-            $after = $parameters;
-            $parameters = [];
-        }
-
-        if ($transformer !== null) {
-            $binding = $this->transformer->register($class, $transformer, $parameters, $after);
-        } else {
-            $binding = $this->transformer->getBinding($collection);
-        }
+        $binding = $this->transformer->register($class, $transformer, $parameters, $after);
 
         return new Response($collection, 200, [], $binding);
     }
@@ -118,79 +89,33 @@ class Factory
     /**
      * Bind an item to a transformer and start building a response.
      *
-     * @param object                         $item
-     * @param null|string|callable|object    $transformer
-     * @param array                          $parameters
-     * @param \Closure                       $after
+     * @param object   $item
+     * @param object   $transformer
+     * @param array    $parameters
+     * @param \Closure $after
      *
      * @return \Dingo\Api\Http\Response
      */
-    public function item($item, $transformer = null, $parameters = [], Closure $after = null)
+    public function item($item, $transformer, array $parameters = [], Closure $after = null)
     {
-        // Check for $item being null
-        if (! is_null($item)) {
-            $class = get_class($item);
-        } else {
-            $class = \StdClass::class;
-        }
+        $class = get_class($item);
 
-        if ($parameters instanceof \Closure) {
-            $after = $parameters;
-            $parameters = [];
-        }
-
-        if ($transformer !== null) {
-            $binding = $this->transformer->register($class, $transformer, $parameters, $after);
-        } else {
-            $binding = $this->transformer->getBinding($item);
-        }
+        $binding = $this->transformer->register($class, $transformer, $parameters, $after);
 
         return new Response($item, 200, [], $binding);
-    }
-
-    /**
-     * Bind an arbitrary array to a transformer and start building a response.
-     *
-     * @param array $array
-     * @param $transformer
-     * @param array $parameters
-     * @param Closure|null $after
-     *
-     * @return Response
-     */
-    public function array(array $array, $transformer = null, $parameters = [], Closure $after = null)
-    {
-        if ($parameters instanceof \Closure) {
-            $after = $parameters;
-            $parameters = [];
-        }
-
-        // For backwards compatibility, allow no transformer
-        if ($transformer) {
-            // Use the PHP stdClass for this purpose, as a work-around, since we need to register a class binding
-            $class = 'stdClass';
-            // This will convert the array into an stdClass
-            $array = (object) $array;
-
-            $binding = $this->transformer->register($class, $transformer, $parameters, $after);
-        } else {
-            $binding = null;
-        }
-
-        return new Response($array, 200, [], $binding);
     }
 
     /**
      * Bind a paginator to a transformer and start building a response.
      *
      * @param \Illuminate\Contracts\Pagination\Paginator $paginator
-     * @param null|string|callable|object                $transformer
+     * @param object                                     $transformer
      * @param array                                      $parameters
      * @param \Closure                                   $after
      *
      * @return \Dingo\Api\Http\Response
      */
-    public function paginator(Paginator $paginator, $transformer = null, array $parameters = [], Closure $after = null)
+    public function paginator(Paginator $paginator, $transformer, array $parameters = [], Closure $after = null)
     {
         if ($paginator->isEmpty()) {
             $class = get_class($paginator);
@@ -198,11 +123,7 @@ class Factory
             $class = get_class($paginator->first());
         }
 
-        if ($transformer !== null) {
-            $binding = $this->transformer->register($class, $transformer, $parameters, $after);
-        } else {
-            $binding = $this->transformer->getBinding($paginator->first());
-        }
+        $binding = $this->transformer->register($class, $transformer, $parameters, $after);
 
         return new Response($paginator, 200, [], $binding);
     }
@@ -293,20 +214,6 @@ class Factory
     }
 
     /**
-     * Return a 405 method not allowed error.
-     *
-     * @param string $message
-     *
-     * @throws \Symfony\Component\HttpKernel\Exception\HttpException
-     *
-     * @return void
-     */
-    public function errorMethodNotAllowed($message = 'Method Not Allowed')
-    {
-        $this->error($message, 405);
-    }
-
-    /**
      * Call magic methods beginning with "with".
      *
      * @param string $method
@@ -322,8 +229,7 @@ class Factory
             return call_user_func_array([$this, Str::camel(substr($method, 4))], $parameters);
 
         // Because PHP won't let us name the method "array" we'll simply watch for it
-            // in here and return the new binding. Gross. This is now DEPRECATED and
-            // should not be used. Just return an array or a new response instance.
+        // in here and return the new binding. Gross.
         } elseif ($method == 'array') {
             return new Response($parameters[0]);
         }

@@ -2,24 +2,23 @@
 
 namespace Dingo\Api\Exception;
 
-use Dingo\Api\Http\Request;
 use Exception;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
-use Illuminate\Support\Str;
+use ReflectionFunction;
+use Dingo\Api\Http\Request;
 use Illuminate\Http\Response;
 use Dingo\Api\Contract\Debug\ExceptionHandler;
-use Dingo\Api\Contract\Debug\MessageBagErrors;
-use Illuminate\Contracts\Debug\ExceptionHandler as IlluminateExceptionHandler;
-use Illuminate\Validation\ValidationException;
-use ReflectionFunction;
-use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\HttpFoundation\Response as BaseResponse;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
-use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
-use Throwable;
+use Illuminate\Contracts\Debug\ExceptionHandler as IlluminateExceptionHandler;
 
 class Handler implements ExceptionHandler, IlluminateExceptionHandler
 {
+    /**
+     * Parent exception handler instance.
+     *
+     * @var \Illuminate\Contracts\Debug\ExceptionHandler
+     */
+    protected $parent;
+
     /**
      * Array of exception handlers.
      *
@@ -49,24 +48,17 @@ class Handler implements ExceptionHandler, IlluminateExceptionHandler
     protected $replacements = [];
 
     /**
-     * The parent Illuminate exception handler instance.
-     *
-     * @var IlluminateExceptionHandler
-     */
-    protected $parentHandler;
-
-    /**
      * Create a new exception handler instance.
      *
-     * @param IlluminateExceptionHandler $parentHandler
+     * @param \Illuminate\Contracts\Debug\ExceptionHandler $parent
      * @param array                                        $format
      * @param bool                                         $debug
      *
      * @return void
      */
-    public function __construct(IlluminateExceptionHandler $parentHandler, array $format, $debug)
+    public function __construct(IlluminateExceptionHandler $parent, array $format, $debug)
     {
-        $this->parentHandler = $parentHandler;
+        $this->parent = $parent;
         $this->format = $format;
         $this->debug = $debug;
     }
@@ -74,53 +66,45 @@ class Handler implements ExceptionHandler, IlluminateExceptionHandler
     /**
      * Report or log an exception.
      *
-     * @param Throwable $exception
+     * @param \Exception $exception
      *
      * @return void
      */
-    public function report(Throwable $throwable)
+    public function report(Exception $exception)
     {
-        $this->parentHandler->report($throwable);
-    }
-
-    /**
-     * Determine if the exception should be reported.
-     *
-     * @param Throwable $e
-     *
-     * @return bool
-     */
-    public function shouldReport(Throwable $e)
-    {
-        return true;
+        return $this->parent->report($exception);
     }
 
     /**
      * Render an exception into an HTTP response.
      *
-     * @param Request $request
-     * @param Throwable $exception
+     * @param \Dingo\Api\Http\Request $request
+     * @param \Exception              $exception
      *
-     * @throws Exception
+     * @throws \Exception
      *
      * @return mixed
      */
-    public function render($request, Throwable $exception)
+    public function render($request, Exception $exception)
     {
-        return $this->handle($exception);
+        if ($request instanceof Request) {
+            return $this->handle($exception);
+        }
+
+        return $this->parent->render($request, $exception);
     }
 
     /**
      * Render an exception to the console.
      *
-     * @param OutputInterface $output
-     * @param Throwable $exception
+     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @param \Exception                                        $exception
      *
      * @return mixed
      */
-    public function renderForConsole($output, Throwable $exception)
+    public function renderForConsole($output, Exception $exception)
     {
-        return $this->parentHandler->renderForConsole($output, $exception);
+        return $this->parent->renderForConsole($output, $exception);
     }
 
     /**
@@ -140,51 +124,46 @@ class Handler implements ExceptionHandler, IlluminateExceptionHandler
     /**
      * Handle an exception if it has an existing handler.
      *
-     * @param Throwable|Exception $exception
+     * @param \Exception $exception
      *
-     * @return Response
+     * @return \Illuminate\Http\Response
      */
-    public function handle($exception)
+    public function handle(Exception $exception)
     {
-        // Convert Eloquent's 500 ModelNotFoundException into a 404 NotFoundHttpException
-        if ($exception instanceof ModelNotFoundException) {
-            $exception = new NotFoundHttpException($exception->getMessage(), $exception);
-        }
-
         foreach ($this->handlers as $hint => $handler) {
             if (! $exception instanceof $hint) {
                 continue;
             }
 
             if ($response = $handler($exception)) {
-                if (! $response instanceof BaseResponse) {
+                if (! $response instanceof Response) {
                     $response = new Response($response, $this->getExceptionStatusCode($exception));
                 }
 
-                return $response->withException($exception);
+                return $response;
             }
         }
 
-        return $this->genericResponse($exception)->withException($exception);
+        return $this->genericResponse($exception);
     }
 
     /**
      * Handle a generic error response if there is no handler available.
      *
-     * @param Throwable $exception
+     * @param \Exception $exception
      *
-     * @throws Throwable
+     * @throws \Exception
      *
-     * @return Response
+     * @return \Illuminate\Http\Response
      */
-    protected function genericResponse(Throwable $exception)
+    protected function genericResponse(Exception $exception)
     {
         $replacements = $this->prepareReplacements($exception);
 
         $response = $this->newResponseArray();
 
-        array_walk_recursive($response, function (&$value, $key) use ($replacements) {
-            if (Str::startsWith($value, ':') && isset($replacements[$value])) {
+        array_walk_recursive($response, function (&$value, $key) use ($exception, $replacements) {
+            if (starts_with($value, ':') && isset($replacements[$value])) {
                 $value = $replacements[$value];
             }
         });
@@ -197,39 +176,23 @@ class Handler implements ExceptionHandler, IlluminateExceptionHandler
     /**
      * Get the status code from the exception.
      *
-     * @param Throwable $exception
+     * @param \Exception $exception
      *
      * @return int
      */
-    protected function getStatusCode(Throwable $exception)
+    protected function getStatusCode(Exception $exception)
     {
-        $statusCode = null;
-
-        if ($exception instanceof ValidationException) {
-            $statusCode = $exception->status;
-        } elseif ($exception instanceof HttpExceptionInterface) {
-            $statusCode = $exception->getStatusCode();
-        } else {
-            // By default throw 500
-            $statusCode = 500;
-        }
-
-        // Be extra defensive
-        if ($statusCode < 100 || $statusCode > 599) {
-            $statusCode = 500;
-        }
-
-        return $statusCode;
+        return $exception instanceof HttpExceptionInterface ? $exception->getStatusCode() : 500;
     }
 
     /**
      * Get the headers from the exception.
      *
-     * @param Throwable $exception
+     * @param \Exception $exception
      *
      * @return array
      */
-    protected function getHeaders(Throwable $exception)
+    protected function getHeaders(Exception $exception)
     {
         return $exception instanceof HttpExceptionInterface ? $exception->getHeaders() : [];
     }
@@ -237,11 +200,11 @@ class Handler implements ExceptionHandler, IlluminateExceptionHandler
     /**
      * Prepare the replacements array by gathering the keys and values.
      *
-     * @param Throwable $exception
+     * @param \Exception $exception
      *
      * @return array
      */
-    protected function prepareReplacements(Throwable $exception)
+    protected function prepareReplacements(Exception $exception)
     {
         $statusCode = $this->getStatusCode($exception);
 
@@ -254,13 +217,8 @@ class Handler implements ExceptionHandler, IlluminateExceptionHandler
             ':status_code' => $statusCode,
         ];
 
-        if ($exception instanceof MessageBagErrors && $exception->hasErrors()) {
+        if ($exception instanceof ResourceException && $exception->hasErrors()) {
             $replacements[':errors'] = $exception->getErrors();
-        }
-
-        if ($exception instanceof ValidationException) {
-            $replacements[':errors'] = $exception->errors();
-            $replacements[':status_code'] = $exception->status;
         }
 
         if ($code = $exception->getCode()) {
@@ -274,16 +232,6 @@ class Handler implements ExceptionHandler, IlluminateExceptionHandler
                 'class' => get_class($exception),
                 'trace' => explode("\n", $exception->getTraceAsString()),
             ];
-
-            // Attach trace of previous exception, if exists
-            if (! is_null($exception->getPrevious())) {
-                $currentTrace = $replacements[':debug']['trace'];
-
-                $replacements[':debug']['trace'] = [
-                    'previous' => explode("\n", $exception->getPrevious()->getTraceAsString()),
-                    'current' => $currentTrace,
-                ];
-            }
         }
 
         return array_merge($replacements, $this->replacements);
@@ -302,7 +250,7 @@ class Handler implements ExceptionHandler, IlluminateExceptionHandler
     }
 
     /**
-     * Recursively remove any empty replacement values in the response array.
+     * Recursirvely remove any empty replacement values in the response array.
      *
      * @param array $input
      *
@@ -318,7 +266,7 @@ class Handler implements ExceptionHandler, IlluminateExceptionHandler
 
         return array_filter($input, function ($value) {
             if (is_string($value)) {
-                return ! Str::startsWith($value, ':');
+                return ! starts_with($value, ':');
             }
 
             return true;
@@ -338,7 +286,7 @@ class Handler implements ExceptionHandler, IlluminateExceptionHandler
     /**
      * Get the exception status code.
      *
-     * @param Exception $exception
+     * @param \Exception $exception
      * @param int        $defaultStatusCode
      *
      * @return int
@@ -370,15 +318,8 @@ class Handler implements ExceptionHandler, IlluminateExceptionHandler
         $reflection = new ReflectionFunction($callback);
 
         $exception = $reflection->getParameters()[0];
-        $reflectionType = $exception->getType();
 
-        if ($reflectionType && ! $reflectionType->isBuiltin()) {
-            if ($reflectionType instanceof \ReflectionNamedType) {
-                return $reflectionType->getName();
-            }
-        }
-
-        return '';
+        return $exception->getClass()->getName();
     }
 
     /**

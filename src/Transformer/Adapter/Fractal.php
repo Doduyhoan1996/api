@@ -4,7 +4,6 @@ namespace Dingo\Api\Transformer\Adapter;
 
 use Dingo\Api\Http\Request;
 use Dingo\Api\Transformer\Binding;
-use League\Fractal\TransformerAbstract;
 use Dingo\Api\Contract\Transformer\Adapter;
 use League\Fractal\Manager as FractalManager;
 use League\Fractal\Resource\Item as FractalItem;
@@ -65,10 +64,10 @@ class Fractal implements Adapter
     /**
      * Transform a response with a transformer.
      *
-     * @param mixed                                     $response
-     * @param League\Fractal\TransformerAbstract|object $transformer
-     * @param \Dingo\Api\Transformer\Binding            $binding
-     * @param \Dingo\Api\Http\Request                   $request
+     * @param mixed                          $response
+     * @param object                         $transformer
+     * @param \Dingo\Api\Transformer\Binding $binding
+     * @param \Dingo\Api\Http\Request        $request
      *
      * @return array
      */
@@ -76,7 +75,7 @@ class Fractal implements Adapter
     {
         $this->parseFractalIncludes($request);
 
-        $resource = $this->createResource($response, $transformer, $parameters = $binding->getParameters());
+        $resource = $this->createResource($response, $transformer, $binding->getParameters());
 
         // If the response is a paginator then we'll create a new paginator
         // adapter for Laravel and set the paginator instance on our
@@ -87,13 +86,8 @@ class Fractal implements Adapter
             $resource->setPaginator($paginator);
         }
 
-        if ($this->shouldEagerLoad($response)) {
+        if (($response instanceof EloquentCollection || $response instanceof IlluminatePaginator) && $this->eagerLoading) {
             $eagerLoads = $this->mergeEagerLoads($transformer, $this->fractal->getRequestedIncludes());
-
-            if ($transformer instanceof TransformerAbstract) {
-                // Only eager load the items in available includes
-                $eagerLoads = array_intersect($eagerLoads, $transformer->getAvailableIncludes());
-            }
 
             $response->load($eagerLoads);
         }
@@ -104,26 +98,7 @@ class Fractal implements Adapter
 
         $binding->fireCallback($resource, $this->fractal);
 
-        $identifier = isset($parameters['identifier']) ? $parameters['identifier'] : null;
-
-        return $this->fractal->createData($resource, $identifier)->toArray();
-    }
-
-    /**
-     * Eager loading is only performed when the response is or contains an
-     * Eloquent collection and eager loading is enabled.
-     *
-     * @param mixed $response
-     *
-     * @return bool
-     */
-    protected function shouldEagerLoad($response)
-    {
-        if ($response instanceof IlluminatePaginator) {
-            $response = $response->getCollection();
-        }
-
-        return $response instanceof EloquentCollection && $this->eagerLoading;
+        return $this->fractal->createData($resource)->toArray();
     }
 
     /**
@@ -167,10 +142,10 @@ class Fractal implements Adapter
      */
     public function parseFractalIncludes(Request $request)
     {
-        $includes = $request->input($this->includeKey);
+        $includes = $request->get($this->includeKey);
 
         if (! is_array($includes)) {
-            $includes = array_map('trim', array_filter(explode($this->includeSeparator, $includes)));
+            $includes = array_filter(explode($this->includeSeparator, $includes));
         }
 
         $this->fractal->parseIncludes($includes);
@@ -196,7 +171,9 @@ class Fractal implements Adapter
      */
     protected function mergeEagerLoads($transformer, $requestedIncludes)
     {
-        $includes = array_merge($requestedIncludes, $transformer->getDefaultIncludes());
+        $availableIncludes = array_intersect($transformer->getAvailableIncludes(), (array) $requestedIncludes);
+
+        $includes = array_merge($availableIncludes, $transformer->getDefaultIncludes());
 
         $eagerLoads = [];
 
@@ -204,34 +181,6 @@ class Fractal implements Adapter
             $eagerLoads[] = is_string($key) ? $key : $value;
         }
 
-        if (property_exists($transformer, 'lazyLoadedIncludes')) {
-            $eagerLoads = array_diff($eagerLoads, $transformer->lazyLoadedIncludes);
-        }
-
         return $eagerLoads;
-    }
-
-    /**
-     * Disable eager loading.
-     *
-     * @return \Dingo\Api\Transformer\Adapter\Fractal
-     */
-    public function disableEagerLoading()
-    {
-        $this->eagerLoading = false;
-
-        return $this;
-    }
-
-    /**
-     * Enable eager loading.
-     *
-     * @return \Dingo\Api\Transformer\Adapter\Fractal
-     */
-    public function enableEagerLoading()
-    {
-        $this->eagerLoading = true;
-
-        return $this;
     }
 }

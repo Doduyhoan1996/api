@@ -110,7 +110,7 @@ class Auth
         $exception = array_shift($exceptionStack);
 
         if ($exception === null) {
-            $exception = new UnauthorizedHttpException('dingo', 'Failed to authenticate because of bad credentials or an invalid authorization header.');
+            $exception = new UnauthorizedHttpException(null, 'Failed to authenticate because of bad credentials or an invalid authorization header.');
         }
 
         throw $exception;
@@ -171,7 +171,7 @@ class Auth
      *
      * @param \Illuminate\Auth\GenericUser|\Illuminate\Database\Eloquent\Model $user
      *
-     * @return \Dingo\Api\Auth\Auth
+     * @return \Dingo\Api\Auth\Authenticator
      */
     public function setUser($user)
     {

@@ -4,8 +4,8 @@ namespace Dingo\Api\Auth\Provider;
 
 use Exception;
 use Tymon\JWTAuth\JWTAuth;
-use Dingo\Api\Routing\Route;
 use Illuminate\Http\Request;
+use Dingo\Api\Routing\Route;
 use Tymon\JWTAuth\Exceptions\JWTException;
 use Symfony\Component\HttpKernel\Exception\UnauthorizedHttpException;
 
@@ -43,11 +43,9 @@ class JWT extends Authorization
         $token = $this->getToken($request);
 
         try {
-            if (! $user = $this->auth->setToken($token)->authenticate()) {
-                throw new UnauthorizedHttpException('JWTAuth', 'Unable to authenticate with invalid token.');
-            }
-        } catch (JWTException $exception) {
-            throw new UnauthorizedHttpException('JWTAuth', $exception->getMessage(), $exception);
+            return $this->auth->setToken($token)->authenticate();
+        } catch (JWTException $e) {
+            throw new UnauthorizedHttpException('JWTAuth', $e->getMessage());
         }
 
         return $user;

@@ -2,22 +2,15 @@
 
 namespace Dingo\Api\Routing\Adapter;
 
-use Dingo\Api\Contract\Routing\Adapter;
-use Dingo\Api\Exception\UnknownVersionException;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Route;
-use Illuminate\Routing\RouteCollection;
 use Illuminate\Routing\Router;
+use Illuminate\Routing\RouteCollection;
+use Dingo\Api\Contract\Routing\Adapter;
+use Dingo\Api\Exception\UnknownVersionException;
 
 class Laravel implements Adapter
 {
-    /**
-     * Application container instance.
-     *
-     * @var \Illuminate\Contracts\Container\Container
-     */
-    protected $container;
-
     /**
      * Laravel router instance.
      *
@@ -33,25 +26,11 @@ class Laravel implements Adapter
     protected $routes = [];
 
     /**
-     * Array of merged old routes and API routes.
-     *
-     * @var array
-     */
-    protected $mergedRoutes = [];
-
-    /**
-     * Routes already defined on the router.
+     * Old routes already defined on the router.
      *
      * @var \Illuminate\Routing\RouteCollection
      */
     protected $oldRoutes;
-
-    /**
-     * The globally available parameter patterns.
-     *
-     * @var array
-     */
-    protected $patterns = [];
 
     /**
      * Create a new laravel routing adapter instance.
@@ -79,44 +58,31 @@ class Laravel implements Adapter
             throw new UnknownVersionException;
         }
 
-        $routes = $this->mergeOldRoutes($version);
+        $routes = $this->mergeExistingRoutes($this->routes[$version]);
 
         $this->router->setRoutes($routes);
 
-        $router = clone $this->router;
-
-        $response = $router->dispatch($request);
-
-        unset($router);
-
-        return $response;
+        return $this->router->dispatch($request);
     }
 
     /**
-     * Merge the old application routes with the API routes.
+     * Merge the existing routes with the new routes.
      *
-     * @param string $version
+     * @param \Illuminate\Routing\RouteCollection $routes
      *
-     * @return array
+     * @return \Illuminate\Routing\RouteCollection
      */
-    protected function mergeOldRoutes($version)
+    protected function mergeExistingRoutes(RouteCollection $routes)
     {
         if (! isset($this->oldRoutes)) {
             $this->oldRoutes = $this->router->getRoutes();
         }
 
-        if (! isset($this->mergedRoutes[$version])) {
-            $this->mergedRoutes[$version] = $this->routes[$version];
-
-            foreach ($this->oldRoutes as $route) {
-                $this->mergedRoutes[$version]->add($route);
-            }
-
-            $this->mergedRoutes[$version]->refreshNameLookups();
-            $this->mergedRoutes[$version]->refreshActionLookups();
+        foreach ($this->oldRoutes as $route) {
+            $routes->add($route);
         }
 
-        return $this->mergedRoutes[$version];
+        return $routes;
     }
 
     /**
@@ -129,10 +95,6 @@ class Laravel implements Adapter
      */
     public function getRouteProperties($route, Request $request)
     {
-        if (method_exists($route, 'uri') && method_exists($route, 'methods')) {
-            return [$route->uri(), $route->methods(), $route->getAction()];
-        }
-
         return [$route->getUri(), $route->getMethods(), $route->getAction()];
     }
 
@@ -150,11 +112,7 @@ class Laravel implements Adapter
     {
         $this->createRouteCollections($versions);
 
-        // Add where-patterns from original laravel router
-        $action['where'] = array_merge($this->router->getPatterns(), $action['where'] ?? []);
-
         $route = new Route($methods, $uri, $action);
-        $route->where($action['where']);
 
         foreach ($versions as $version) {
             $this->routes[$version]->add($route);
@@ -195,13 +153,6 @@ class Laravel implements Adapter
         return $this->routes;
     }
 
-    /**
-     * Get a normalized iterable set of routes.
-     *
-     * @param string $version
-     *
-     * @return mixed
-     */
     public function getIterableRoutes($version = null)
     {
         return $this->getRoutes($version);
@@ -231,41 +182,5 @@ class Laravel implements Adapter
         $route->prepareForSerialization();
 
         return $route;
-    }
-
-    /**
-     * Gather the route middlewares.
-     *
-     * @param \Illuminate\Routing\Route $route
-     *
-     * @return array
-     */
-    public function gatherRouteMiddlewares($route)
-    {
-        if (method_exists($this->router, 'gatherRouteMiddleware')) {
-            return $this->router->gatherRouteMiddleware($route);
-        }
-
-        return $this->router->gatherRouteMiddlewares($route);
-    }
-
-    /**
-     * Get the Laravel router instance.
-     *
-     * @return \Illuminate\Routing\Router
-     */
-    public function getRouter()
-    {
-        return $this->router;
-    }
-
-    /**
-     * Get the global "where" patterns.
-     *
-     * @return array
-     */
-    public function getPatterns()
-    {
-        return $this->patterns;
     }
 }

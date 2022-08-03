@@ -3,29 +3,20 @@
 namespace Dingo\Api\Http;
 
 use ArrayObject;
-use Illuminate\Support\Str;
+use Dingo\Api\Event;
 use UnexpectedValueException;
-use Illuminate\Http\JsonResponse;
 use Dingo\Api\Transformer\Binding;
-use Dingo\Api\Event\ResponseIsMorphing;
-use Dingo\Api\Event\ResponseWasMorphed;
 use Illuminate\Contracts\Support\Arrayable;
+use Symfony\Component\HttpFoundation\Cookie;
 use Illuminate\Http\Response as IlluminateResponse;
-use Dingo\Api\Transformer\Factory as TransformerFactory;
+use Illuminate\Events\Dispatcher as EventDispatcher;
 use Illuminate\Database\Eloquent\Model as EloquentModel;
-use Illuminate\Contracts\Events\Dispatcher as EventDispatcher;
+use Dingo\Api\Transformer\Factory as TransformerFactory;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Symfony\Component\HttpKernel\Exception\NotAcceptableHttpException;
 
 class Response extends IlluminateResponse
 {
-    /**
-     * The exception that triggered the error response.
-     *
-     * @var \Exception
-     */
-    public $exception;
-
     /**
      * Transformer binding instance.
      *
@@ -41,13 +32,6 @@ class Response extends IlluminateResponse
     protected static $formatters = [];
 
     /**
-     * Array of formats' options.
-     *
-     * @var array
-     */
-    protected static $formatsOptions = [];
-
-    /**
      * Transformer factory instance.
      *
      * @var \Dingo\Api\Transformer\TransformerFactory
@@ -57,7 +41,7 @@ class Response extends IlluminateResponse
     /**
      * Event dispatcher instance.
      *
-     * @var \Illuminate\Contracts\Events\Dispatcher
+     * @var \Illuminate\Events\Dispatcher
      */
     protected static $events;
 
@@ -87,34 +71,9 @@ class Response extends IlluminateResponse
      */
     public static function makeFromExisting(IlluminateResponse $old)
     {
-        $new = new static($old->getOriginalContent(), $old->getStatusCode());
+        $new = static::create($old->getOriginalContent(), $old->getStatusCode());
 
         $new->headers = $old->headers;
-
-        return $new;
-    }
-
-    /**
-     * Make an API response from an existing JSON response.
-     *
-     * @param \Illuminate\Http\JsonResponse $json
-     *
-     * @return \Dingo\Api\Http\Response
-     */
-    public static function makeFromJson(JsonResponse $json)
-    {
-        $content = $json->getContent();
-
-        // If the contents of the JsonResponse does not starts with /**/ (typical laravel jsonp response)
-        // we assume that it is a valid json response that can be decoded, or we just use the raw jsonp
-        // contents for building the response
-        if (! Str::startsWith($json->getContent(), '/**/')) {
-            $content = json_decode($json->getContent(), true);
-        }
-
-        $new = new static($content, $json->getStatusCode());
-
-        $new->headers = $json->headers;
 
         return $new;
     }
@@ -138,15 +97,9 @@ class Response extends IlluminateResponse
 
         $formatter = static::getFormatter($format);
 
-        $formatter->setOptions(static::getFormatsOptions($format));
+        $defaultContentType = $this->headers->get('content-type');
 
-        $defaultContentType = $this->headers->get('Content-Type');
-
-        // If we have no content, we don't want to set this header, as it will be blank
-        $contentType = $formatter->getContentType();
-        if (! empty($contentType)) {
-            $this->headers->set('Content-Type', $formatter->getContentType());
-        }
+        $this->headers->set('content-type', $formatter->getContentType());
 
         $this->fireMorphedEvent();
 
@@ -157,9 +110,7 @@ class Response extends IlluminateResponse
         } elseif (is_array($this->content) || $this->content instanceof ArrayObject || $this->content instanceof Arrayable) {
             $this->content = $formatter->formatArray($this->content);
         } else {
-            if (! empty($defaultContentType)) {
-                $this->headers->set('Content-Type', $defaultContentType);
-            }
+            $this->headers->set('content-type', $defaultContentType);
         }
 
         return $this;
@@ -176,7 +127,7 @@ class Response extends IlluminateResponse
             return;
         }
 
-        static::$events->dispatch(new ResponseWasMorphed($this, $this->content));
+        static::$events->fire(new Event\ResponseWasMorphed($this, $this->content));
     }
 
     /**
@@ -190,7 +141,7 @@ class Response extends IlluminateResponse
             return;
         }
 
-        static::$events->dispatch(new ResponseIsMorphing($this, $this->content));
+        static::$events->fire(new Event\ResponseIsMorphing($this, $this->content));
     }
 
     /**
@@ -202,12 +153,6 @@ class Response extends IlluminateResponse
         // then we most likely have an object that cannot be type cast. In that
         // case we'll simply leave the content as null and set the original
         // content value and continue.
-        if (! empty($content) && is_object($content) && ! $this->shouldBeJson($content)) {
-            $this->original = $content;
-
-            return $this;
-        }
-
         try {
             return parent::setContent($content);
         } catch (UnexpectedValueException $exception) {
@@ -220,7 +165,7 @@ class Response extends IlluminateResponse
     /**
      * Set the event dispatcher instance.
      *
-     * @param \Illuminate\Contracts\Events\Dispatcher $events
+     * @param \Illuminate\Events\Dispatcher $events
      *
      * @return void
      */
@@ -269,46 +214,6 @@ class Response extends IlluminateResponse
     public static function setFormatters(array $formatters)
     {
         static::$formatters = $formatters;
-    }
-
-    /**
-     * Set the formats' options.
-     *
-     * @param array $formatsOptions
-     *
-     * @return void
-     */
-    public static function setFormatsOptions(array $formatsOptions)
-    {
-        static::$formatsOptions = $formatsOptions;
-    }
-
-    /**
-     * Get the format's options.
-     *
-     * @param string $format
-     *
-     * @return array
-     */
-    public static function getFormatsOptions($format)
-    {
-        if (! static::hasOptionsForFormat($format)) {
-            return [];
-        }
-
-        return static::$formatsOptions[$format];
-    }
-
-    /**
-     * Determine if any format's options were set.
-     *
-     * @param string $format
-     *
-     * @return bool
-     */
-    public static function hasOptionsForFormat($format)
-    {
-        return isset(static::$formatsOptions[$format]);
     }
 
     /**
@@ -401,11 +306,11 @@ class Response extends IlluminateResponse
     /**
      * Add a cookie to the response.
      *
-     * @param \Symfony\Component\HttpFoundation\Cookie|mixed $cookie
+     * @param \Symfony\Component\HttpFoundation\Cookie $cookie
      *
      * @return \Dingo\Api\Http\Response
      */
-    public function cookie($cookie)
+    public function cookie(Cookie $cookie)
     {
         return $this->withCookie($cookie);
     }

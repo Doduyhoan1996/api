@@ -3,10 +3,10 @@
 namespace Dingo\Api;
 
 use Dingo\Api\Auth\Auth;
-use Illuminate\Support\Str;
+use Illuminate\Http\Request;
 use Dingo\Api\Routing\Router;
-use Dingo\Api\Http\InternalRequest;
 use Illuminate\Container\Container;
+use Dingo\Api\Http\InternalRequest;
 use Illuminate\Filesystem\Filesystem;
 use Symfony\Component\HttpFoundation\Cookie;
 use Dingo\Api\Exception\InternalHttpException;
@@ -122,18 +122,11 @@ class Dispatcher
     protected $persistAuthentication = true;
 
     /**
-     * API subtype.
+     * API vendor.
      *
      * @var string
      */
-    protected $subtype;
-
-    /**
-     * API standards tree.
-     *
-     * @var string
-     */
-    protected $standardsTree;
+    protected $vendor;
 
     /**
      * API prefix.
@@ -184,13 +177,13 @@ class Dispatcher
     }
 
     /**
-     * Setup the request stack by grabbing the initial request.
+     * Setup the request stack by cloning the initial request.
      *
      * @return void
      */
     protected function setupRequestStack()
     {
-        $this->requestStack[] = $this->container['request'];
+        $this->requestStack[] = clone $this->container['request'];
     }
 
     /**
@@ -248,7 +241,7 @@ class Dispatcher
 
         $this->content = $content;
 
-        return $this->header('Content-Type', 'application/json');
+        return $this->header('content-type', 'application/json');
     }
 
     /**
@@ -431,16 +424,6 @@ class Dispatcher
             $this->content = $content;
         }
 
-        // Sometimes after setting the initial request another request might be made prior to
-        // internally dispatching an API request. We need to capture this request as well
-        // and add it to the request stack as it has become the new parent request to
-        // this internal request. This will generally occur during tests when
-        // using the crawler to navigate pages that also make internal
-        // requests.
-        if (end($this->requestStack) != $this->container['request']) {
-            $this->requestStack[] = $this->container['request'];
-        }
-
         $this->requestStack[] = $request = $this->createRequest($verb, $uri, $parameters);
 
         return $this->dispatch($request);
@@ -461,22 +444,7 @@ class Dispatcher
 
         $uri = $this->addPrefixToUri($uri);
 
-        // If the URI does not have a scheme then we can assume that there it is not an
-        // absolute URI, in this case we'll prefix the root requests path to the URI.
-        $rootUrl = $this->getRootRequest()->root();
-        if ((! parse_url($uri, PHP_URL_SCHEME)) && parse_url($rootUrl) !== false) {
-            $uri = rtrim($rootUrl, '/').'/'.ltrim($uri, '/');
-        }
-
-        $request = InternalRequest::create(
-            $uri,
-            $verb,
-            $parameters,
-            $this->cookies,
-            $this->uploads,
-            $this->container['request']->server->all(),
-            $this->content
-        );
+        $request = InternalRequest::create($uri, $verb, $parameters, $this->cookies, $this->uploads, [], $this->content);
 
         $request->headers->set('host', $this->getDomain());
 
@@ -504,7 +472,7 @@ class Dispatcher
 
         $uri = trim($uri, '/');
 
-        if (Str::startsWith($uri, $this->prefix)) {
+        if (starts_with($uri, $this->prefix)) {
             return $uri;
         }
 
@@ -518,7 +486,7 @@ class Dispatcher
      */
     protected function getAcceptHeader()
     {
-        return sprintf('application/%s.%s.%s+%s', $this->getStandardsTree(), $this->getSubtype(), $this->getVersion(), $this->getFormat());
+        return sprintf('application/vnd.%s.%s+%s', $this->getVendor(), $this->getVersion(), $this->getFormat());
     }
 
     /**
@@ -541,11 +509,9 @@ class Dispatcher
 
             $response = $this->router->dispatch($request);
 
-            if (! $response->isSuccessful() && ! $response->isRedirection()) {
+            if (! $response->isSuccessful()) {
                 throw new InternalHttpException($response);
-            }
-
-            if (! $this->raw) {
+            } elseif (! $this->raw) {
                 $response = $response->getOriginalContent();
             }
         } catch (HttpExceptionInterface $exception) {
@@ -617,16 +583,6 @@ class Dispatcher
     }
 
     /**
-     * Get the root request instance.
-     *
-     * @return \Illuminate\Http\Request
-     */
-    protected function getRootRequest()
-    {
-        return reset($this->requestStack);
-    }
-
-    /**
      * Get the domain.
      *
      * @return string
@@ -657,47 +613,25 @@ class Dispatcher
     }
 
     /**
-     * Get the subtype.
+     * Get the vendor.
      *
      * @return string
      */
-    public function getSubtype()
+    public function getVendor()
     {
-        return $this->subtype;
+        return $this->vendor;
     }
 
     /**
-     * Set the subtype.
+     * Set the vendor.
      *
-     * @param string $subtype
+     * @param string $vendor
      *
      * @return void
      */
-    public function setSubtype($subtype)
+    public function setVendor($vendor)
     {
-        $this->subtype = $subtype;
-    }
-
-    /**
-     * Get the standards tree.
-     *
-     * @return string
-     */
-    public function getStandardsTree()
-    {
-        return $this->standardsTree;
-    }
-
-    /**
-     * Set the standards tree.
-     *
-     * @param string $standardsTree
-     *
-     * @return void
-     */
-    public function setStandardsTree($standardsTree)
-    {
-        $this->standardsTree = $standardsTree;
+        $this->vendor = $vendor;
     }
 
     /**
@@ -737,7 +671,7 @@ class Dispatcher
     }
 
     /**
-     * Set the default format.
+     * Set the defult format.
      *
      * @param string $format
      *

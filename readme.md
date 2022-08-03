@@ -1,42 +1,18 @@
-# Move repositories notice
-Unfortunately this package cannot be maintained at this location anymore due to broken CI integrations, and travis-ci likely can't be used much longer either due to their change to paid plans. This project is still being actively maintained, we ask you to please switch to the following repository: https://github.com/api-ecosystem-for-laravel/dingo-api
-
----
-
-![](https://cloud.githubusercontent.com/assets/829059/9216039/82be51cc-40f6-11e5-88f5-f0cbd07bcc39.png)
-
-The Dingo API package is meant to provide you, the developer, with a set of tools to help you easily and quickly build your own API. While the goal of this package is to remain as flexible as possible it still won't cover all situations and solve all problems.
+# API for Laravel
 
 [![Build Status](https://img.shields.io/travis/dingo/api/master.svg?style=flat-square)](https://travis-ci.org/dingo/api)
-[![License](https://img.shields.io/packagist/l/dingo/api.svg?style=flat-square)](LICENSE)
-[![Development Version](https://img.shields.io/packagist/vpre/dingo/api.svg?style=flat-square)](https://packagist.org/packages/dingo/api)
-[![Monthly Installs](https://img.shields.io/packagist/dm/dingo/api.svg?style=flat-square)](https://packagist.org/packages/dingo/api)
+[![License](https://img.shields.io/packagist/l/dingo/api.svg?style=flat-square)](https://packagist.org/packages/dingo/api)
+![Development Version](https://img.shields.io/packagist/vpre/dingo/api.svg?style=flat-square)
+![Monthly Installs](https://img.shields.io/packagist/dm/dingo/api.svg?style=flat-square)
 [![StyleCI](https://styleci.io/repos/18673522/shield)](https://styleci.io/repos/18673522)
 
-## Features
+> **NOTE:** This package should be considered an alpha and as such is prone to bugs. Please report them as you find them.
 
-This package provides tools for the following, and more:
-
-- Content Negotiation
-- Multiple Authentication Adapters
-- API Versioning
-- Rate Limiting
-- Response Transformers and Formatters
-- Error and Exception Handling
-- Internal Requests
-- API Blueprint Documentation
+The Dingo API package is meant to provide you, the developer, with a set of tools to help you easily and quickly build your own API. While the goal of this package is to remain as flexible as possible it still won't cover all situations and solve all problems.
 
 ## Documentation
 
 Please refer to our extensive [Wiki documentation](https://github.com/dingo/api/wiki) for more information.
-
-## API Boilerplate
-
-If you are looking to start a new project from scratch, consider using the [Laravel API Boilerplate](https://github.com/specialtactics/laravel-api-boilerplate), which builds on top of the dingo-api package, and adds a lot of great features.
-
-## Support
-
-For answers you may not find in the Wiki, avoid posting issues. Feel free to ask for support on the dedicated [Slack](https://larachat.slack.com/messages/api/) room. Make sure to mention **specialtactics** so he is notified.
 
 ## License
 

@@ -6,9 +6,8 @@ use ArrayIterator;
 use ReflectionClass;
 use FastRoute\Dispatcher;
 use FastRoute\RouteParser;
-use Illuminate\Support\Str;
-use FastRoute\DataGenerator;
 use Illuminate\Http\Request;
+use FastRoute\DataGenerator;
 use FastRoute\RouteCollector;
 use Laravel\Lumen\Application;
 use Dingo\Api\Contract\Routing\Adapter;
@@ -38,11 +37,11 @@ class Lumen implements Adapter
     protected $generator;
 
     /**
-     * FastRoute dispatcher resolver callback.
+     * FastRoute dispatcher class name.
      *
-     * @var callable
+     * @var string
      */
-    protected $dispatcherResolver;
+    protected $dispatcher;
 
     /**
      * Array of registered routes.
@@ -52,42 +51,21 @@ class Lumen implements Adapter
     protected $routes = [];
 
     /**
-     * Array of merged old routes and API routes.
-     *
-     * @var array
-     */
-    protected $mergedRoutes = [];
-
-    /**
-     * Routes already defined on the router.
-     *
-     * @var \Illuminate\Routing\RouteCollection
-     */
-    protected $oldRoutes;
-
-    /**
-     * Indicates if the middleware has been removed from the application instance.
-     *
-     * @var bool
-     */
-    protected $middlewareRemoved = false;
-
-    /**
      * Create a new lumen adapter instance.
      *
      * @param \Laravel\Lumen\Application $app
      * @param \FastRoute\RouteParser     $parser
      * @param \FastRoute\DataGenerator   $generator
-     * @param callable                   $dispatcherResolver
+     * @param string                     $dispatcher
      *
      * @return void
      */
-    public function __construct(Application $app, RouteParser $parser, DataGenerator $generator, callable $dispatcherResolver)
+    public function __construct(Application $app, RouteParser $parser, DataGenerator $generator, $dispatcher)
     {
         $this->app = $app;
         $this->parser = $parser;
         $this->generator = $generator;
-        $this->dispatcherResolver = $dispatcherResolver;
+        $this->dispatcher = $dispatcher;
     }
 
     /**
@@ -104,54 +82,15 @@ class Lumen implements Adapter
             throw new UnknownVersionException;
         }
 
-        $this->removeMiddlewareFromApp();
+        $this->removeRequestMiddlewareFromApp();
 
-        $routeCollector = $this->mergeOldRoutes($version);
-        $dispatcher = call_user_func($this->dispatcherResolver, $routeCollector);
+        $routes = $this->routes[$version];
 
-        $this->app->setDispatcher($dispatcher);
-
-        $this->normalizeRequestUri($request);
+        $this->app->setDispatcher(
+            new $this->dispatcher($routes->getData())
+        );
 
         return $this->app->dispatch($request);
-    }
-
-    /**
-     * Merge the old application routes with the API routes.
-     *
-     * @param string $version
-     *
-     * @return array
-     */
-    protected function mergeOldRoutes($version)
-    {
-        if (! isset($this->oldRoutes)) {
-            $this->oldRoutes = $this->app->router->getRoutes();
-        }
-        if (! isset($this->mergedRoutes[$version])) {
-            $this->mergedRoutes[$version] = $this->routes[$version];
-            foreach ($this->oldRoutes as $route) {
-                $this->mergedRoutes[$version]->addRoute($route['method'], $route['uri'], $route['action']);
-            }
-        }
-
-        return $this->mergedRoutes[$version];
-    }
-
-    /**
-     * Normalize the request URI so that Lumen can properly dispatch it.
-     *
-     * @param \Illuminate\Http\Request $request
-     *
-     * @return void
-     */
-    protected function normalizeRequestUri(Request $request)
-    {
-        $query = $request->server->get('QUERY_STRING');
-
-        $uri = '/'.trim(str_replace('?'.$query, '', $request->server->get('REQUEST_URI')), '/').($query ? '?'.$query : '');
-
-        $request->server->set('REQUEST_URI', $uri);
     }
 
     /**
@@ -168,7 +107,7 @@ class Lumen implements Adapter
         $methods = isset($route['methods']) ? $route['methods'] : (array) $request->getMethod();
         $action = (isset($route[1]) && is_array($route[1])) ? $route[1] : $route;
 
-        if (in_array('GET', $methods) && ! in_array('HEAD', $methods)) {
+        if ($request->getMethod() === 'GET' && ! in_array('HEAD', $methods)) {
             $methods[] = 'HEAD';
         }
 
@@ -205,7 +144,7 @@ class Lumen implements Adapter
      */
     protected function breakUriSegments($uri)
     {
-        if (! Str::contains($uri, '?}')) {
+        if (! str_contains($uri, '?}')) {
             return (array) $uri;
         }
 
@@ -244,31 +183,24 @@ class Lumen implements Adapter
     }
 
     /**
-     * Remove the global application middleware as it's run from this packages
-     * Request middleware. Lumen runs middleware later in its life cycle
-     * which results in some middleware being executed twice.
+     * Remove the request middleware from the application instance so we don't
+     * end up in a continuous loop.
      *
      * @return void
      */
-    protected function removeMiddlewareFromApp()
+    protected function removeRequestMiddlewareFromApp()
     {
-        if ($this->middlewareRemoved) {
-            return;
-        }
-
-        $this->middlewareRemoved = true;
-
         $reflection = new ReflectionClass($this->app);
         $property = $reflection->getProperty('middleware');
         $property->setAccessible(true);
-        $oldMiddlewares = $property->getValue($this->app);
-        $newMiddlewares = [];
-        foreach ($oldMiddlewares as $middle) {
-            if ((new ReflectionClass($middle))->hasMethod('terminate') && $middle != 'Dingo\Api\Http\Middleware\Request') {
-                $newMiddlewares = array_merge($newMiddlewares, [$middle]);
-            }
+
+        $middleware = $property->getValue($this->app);
+
+        if (($key = array_search('Dingo\Api\Http\Middleware\Request', $middleware)) !== false) {
+            unset($middleware[$key]);
         }
-        $property->setValue($this->app, $newMiddlewares);
+
+        $property->setValue($this->app, $middleware);
         $property->setAccessible(false);
     }
 
@@ -303,16 +235,8 @@ class Lumen implements Adapter
             $routeData = $collector->getData();
 
             // The first element in the array are the static routes that do not have any parameters.
-            foreach ($this->normalizeStaticRoutes($routeData[0]) as $method => $routes) {
-                if ($method === 'HEAD') {
-                    continue;
-                }
-
-                foreach ($routes as $route) {
-                    $route['methods'] = $this->setRouteMethods($route, $method);
-
-                    $iterable[$version][] = $route;
-                }
+            foreach ($routeData[0] as $uri => $route) {
+                $iterable[$version][] = array_shift($route);
             }
 
             // The second element is the more complicated regex routes that have parameters.
@@ -322,9 +246,7 @@ class Lumen implements Adapter
                 }
 
                 foreach ($routes as $data) {
-                    foreach ($data['routeMap'] as [$route, $parameters]) {
-                        $route['methods'] = $this->setRouteMethods($route, $method);
-
+                    foreach ($data['routeMap'] as list($route, $parameters)) {
                         $iterable[$version][] = $route;
                     }
                 }
@@ -332,51 +254,6 @@ class Lumen implements Adapter
         }
 
         return new ArrayIterator($iterable);
-    }
-
-    /**
-     * Normalize the FastRoute static routes so they're the same across multiple versions.
-     *
-     * @param array $routes
-     *
-     * @return array
-     */
-    protected function normalizeStaticRoutes(array $routes)
-    {
-        foreach (array_keys($routes) as $key) {
-            // If any of the keys are  an HTTP method then we are running on a newer version of
-            // Lumen and FastRoute which means we can leave the routes as they are.
-            if ($this->stringIsHttpMethod($key)) {
-                return $routes;
-            }
-        }
-
-        $normalized = [];
-
-        // To normalize the routes we'll take the inner array which contains the routes method as the
-        // key and make that the parent element on the array. We'll then add all routes for a
-        // particular HTTP method as children of it by keying them to their URI.
-        foreach ($routes as $uri => $value) {
-            foreach ($value as $method => $route) {
-                $normalized[$method][$uri] = $route;
-            }
-        }
-
-        return $normalized;
-    }
-
-    /**
-     * Determine if a string is an HTTP method.
-     *
-     * @param string $string
-     *
-     * @return bool
-     */
-    protected function stringIsHttpMethod($string)
-    {
-        $methods = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
-
-        return in_array($string, $methods, true);
     }
 
     /**
@@ -401,33 +278,5 @@ class Lumen implements Adapter
     public function prepareRouteForSerialization($route)
     {
         // Route caching is not implemented for Lumen.
-    }
-
-    /**
-     * Gather the route middlewares.
-     *
-     * @param array $route
-     *
-     * @return array
-     */
-    public function gatherRouteMiddlewares($route)
-    {
-        // Route middleware in Lumen is not terminated.
-        return [];
-    }
-
-    /**
-     * Append given method to the current route methods.
-     *
-     * @param array  $route
-     * @param string $method
-     *
-     * @return array
-     */
-    private function setRouteMethods($route, $method)
-    {
-        return isset($route['methods'])
-            ? array_push($route['methods'], $method)
-            : [$method];
     }
 }
